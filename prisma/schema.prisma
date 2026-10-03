@@ -1,0 +1,340 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ============================================================
+// ENUMS
+// ============================================================
+
+enum Role {
+  ADMIN
+  USER
+}
+
+enum TransactionType {
+  CREDIT
+  DEBIT
+}
+
+enum TransactionStatus {
+  PENDING
+  SUCCESS
+  CANCELLED
+  FAILED
+  REFUNDED
+}
+
+enum PaymentMethod {
+  CARD
+  UPI
+  OTHER
+}
+
+enum TransactionEventType {
+  CREATED
+  PAYMENT_INITIATED
+  PAYMENT_RECEIVED
+  PAYMENT_COMPLETED
+  PAYMENT_FAILED
+  PAYMENT_CANCELLED
+  REFUND_INITIATED
+  REFUND_COMPLETED
+  UPDATED
+}
+
+enum AuditAction {
+  LOGIN
+  LOGOUT
+  CREATE
+  UPDATE
+  DELETE
+  PASSWORD_CHANGED
+  PASSWORD_RESET
+  OTP_REQUESTED
+  OTP_VERIFIED
+  PAYMENT_CREATED
+  PAYMENT_UPDATED
+  PAYMENT_CANCELLED
+  PAYMENT_REFUNDED
+}
+
+enum BetStatus {
+  PENDING
+  WON
+  LOST
+}
+
+// ============================================================
+// USER
+// ============================================================
+
+model User {
+  id       String  @id @default(cuid())
+  email    String  @unique
+  name     String
+  phone    String  @unique
+  password String
+  role     Role    @default(USER)
+  isActive Boolean @default(true)
+
+  balance Decimal @default(0) @db.Decimal(10, 2) // <-- NEW
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  passwordResetOtps     PasswordResetOtp[]
+  transactions          Transaction[]      @relation("UserTransactions")
+  performedTransactions Transaction[]      @relation("PerformedByTransactions")
+  transactionEvents     TransactionEvent[] @relation("PerformedTransactionEvents")
+  auditLogs             AuditLog[]         @relation("UserAuditLogs")
+
+  bankDetail BankDetail? // <-- NEW
+  bets       Bet[]
+}
+
+// Add this as a new model in the file:
+model BankDetail {
+  id            String @id @default(cuid())
+  userId        String @unique
+  bankName      String
+  accountNumber String
+  ifsc          String
+  holderName    String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// ============================================================
+// PASSWORD RESET OTP
+// ============================================================
+
+model PasswordResetOtp {
+  id String @id @default(cuid())
+
+  userId String
+
+  // Hashed OTP
+  otpHash String
+
+  // OTP expiration
+  expiresAt DateTime
+
+  // Set when OTP is successfully verified
+  verifiedAt DateTime?
+
+  // Temporary reset token after OTP verification
+  resetTokenHash String?
+
+  // Reset token expiration
+  resetTokenExpiresAt DateTime?
+
+  // Number of failed OTP attempts
+  attempts Int @default(0)
+
+  // Set when password has been successfully reset
+  usedAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  // Relation
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+// ============================================================
+// TRANSACTION
+// ============================================================
+
+model Transaction {
+  id String @id @default(cuid())
+
+  // CREDIT = money received
+  // DEBIT  = money paid
+  type TransactionType
+
+  // Transaction amount
+  amount Decimal @db.Decimal(10, 2)
+
+  // Payment status
+  status TransactionStatus @default(PENDING)
+
+  // Payment method
+  paymentMethod PaymentMethod
+
+  // User associated with the transaction
+  userId String
+
+  // Admin/user who performed the transaction
+  performedById String
+
+  // UPI UTR / Bank transaction ID / Gateway ID
+  referenceId String?
+
+  // Your internal transaction number
+  transactionNumber String? @unique
+
+  // Optional description
+  description String?
+
+  // Actual transaction date
+  transactionDate DateTime
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // ----------------------------------------------------------
+  // RELATIONS
+  // ----------------------------------------------------------
+
+  user User @relation("UserTransactions", fields: [userId], references: [id])
+
+  performedBy User @relation("PerformedByTransactions", fields: [performedById], references: [id])
+
+  // Transaction timeline
+  events TransactionEvent[]
+
+  // ----------------------------------------------------------
+  // INDEXES
+  // ----------------------------------------------------------
+
+  @@index([userId])
+  @@index([performedById])
+  @@index([type])
+  @@index([status])
+  @@index([transactionDate])
+  @@index([referenceId])
+}
+
+// ============================================================
+// TRANSACTION EVENT / TIMELINE
+// ============================================================
+
+model TransactionEvent {
+  id String @id @default(cuid())
+
+  // Transaction this event belongs to
+  transactionId String
+
+  // Event type
+  eventType TransactionEventType
+
+  // Admin/user who performed this action
+  performedById String?
+
+  // Optional description
+  description String?
+
+  // Additional information
+  metaData Json?
+
+  createdAt DateTime @default(now())
+
+  // ----------------------------------------------------------
+  // RELATIONS
+  // ----------------------------------------------------------
+
+  transaction Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+
+  performedBy User? @relation("PerformedTransactionEvents", fields: [performedById], references: [id])
+
+  // ----------------------------------------------------------
+  // INDEXES
+  // ----------------------------------------------------------
+
+  @@index([transactionId])
+  @@index([performedById])
+  @@index([createdAt])
+}
+
+// ============================================================
+// AUDIT LOG
+// ============================================================
+
+model AuditLog {
+  id String @id @default(cuid())
+
+  // User/admin who performed the action
+  userId String?
+
+  // Action performed
+  action AuditAction
+
+  // Entity affected
+  // Example: User, Transaction, Password
+  entityType String?
+
+  // ID of affected entity
+  entityId String?
+
+  // Human-readable description
+  description String?
+
+  // Additional information
+  metaData Json?
+
+  // Security information
+  ipAddress String?
+  userAgent String?
+
+  createdAt DateTime @default(now())
+
+  // Relation
+  user User? @relation("UserAuditLogs", fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([entityId, entityType])
+  @@index([action])
+  @@index([createdAt])
+}
+
+model RoundOverride {
+  id            String @id @default(cuid())
+  roundDuration Int    @unique
+  overrideType  String
+  overrideValue String
+  createdById   String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model GameRound {
+  id        String   @id @default(cuid())
+  duration  Int
+  period    String
+  number    Int
+  createdAt DateTime @default(now())
+
+  @@unique([duration, period])
+}
+
+model Bet {
+  id        String    @id @default(cuid())
+  userId    String
+  duration  Int
+  period    String
+  type      String // color | bigsmall | number
+  value     String // green|violet|red, big|small, or "0".."9"
+  amount    Decimal   @db.Decimal(10, 2)
+  status    BetStatus @default(PENDING)
+  payout    Decimal   @default(0) @db.Decimal(10, 2)
+  createdAt DateTime  @default(now())
+  settledAt DateTime?
+
+  user User @relation(fields: [userId], references: [id])
+
+  // one booking per option per round, same rule as the bet panel
+  @@unique([userId, duration, period, type, value])
+  @@index([duration, period, status])
+  @@index([userId, createdAt])
+}
