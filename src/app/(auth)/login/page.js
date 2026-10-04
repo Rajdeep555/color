@@ -39,7 +39,7 @@ export default function LoginPage() {
       }
 
       // route based on role — this is the piece that was missing
-      router.push(result.user.role === "ADMIN" ? "/admin" : "/home");
+      router.push(result.user.role === "ADMIN" ? "/admin/dashboard" : "/home");
     } catch {
       setServerError("Network error. Please try again.");
     }

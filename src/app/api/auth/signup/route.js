@@ -4,7 +4,7 @@ import { prisma } from '@/lib/prisma';
 import { signupBaseSchema } from '@/lib/validations/auth';
 import { signToken } from '@/lib/auth/jwt';
 
-const SIGNUP_BONUS = 30; // ₹ given to every first-time joined user
+const SIGNUP_BONUS = 0; // ₹ given to every first-time joined user
 
 /**
  * app/api/auth/signup/route.js
